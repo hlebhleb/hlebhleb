@@ -73,7 +73,6 @@ public class HexGameGUI extends Application {
 
         ButtonType restartBtn = new ButtonType("Новая игра");
         ButtonType exitBtn = new ButtonType("Выход", ButtonBar.ButtonData.CANCEL_CLOSE);
-
         alert.getButtonTypes().setAll(restartBtn, exitBtn);
 
         alert.showAndWait().ifPresent(type -> {
@@ -86,13 +85,50 @@ public class HexGameGUI extends Application {
         });
     }
 
+    private Faction[] showSelectionDialog() {
+        Dialog<Faction[]> dialog = new Dialog<>();
+        dialog.setTitle("Выбор сторон");
+
+        ChoiceBox<Faction> cb1 = new ChoiceBox<>(); cb1.getItems().addAll(Faction.values()); cb1.setValue(Faction.USSR);
+        ChoiceBox<Faction> cb2 = new ChoiceBox<>(); cb2.getItems().addAll(Faction.values()); cb2.setValue(Faction.GERMANY);
+
+        Label errorLabel = new Label("Выберите разные страны!");
+        errorLabel.setTextFill(Color.RED);
+        errorLabel.setVisible(false);
+
+        VBox layout = new VBox(10, new Label("Игрок 1:"), cb1, new Label("Игрок 2:"), cb2, errorLabel);
+        layout.setPadding(new Insets(20));
+        dialog.getDialogPane().setContent(layout);
+
+        ButtonType okType = new ButtonType("Начать", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(okType);
+        Node okButton = dialog.getDialogPane().lookupButton(okType);
+
+        // Блокировка кнопки OK, если выбраны одинаковые фракции
+        cb1.valueProperty().addListener((o, old, nw) -> {
+            boolean invalid = (nw == cb2.getValue());
+            okButton.setDisable(invalid);
+            errorLabel.setVisible(invalid);
+        });
+        cb2.valueProperty().addListener((o, old, nw) -> {
+            boolean invalid = (nw == cb1.getValue());
+            okButton.setDisable(invalid);
+            errorLabel.setVisible(invalid);
+        });
+
+        dialog.setResultConverter(b -> b == okType ? new Faction[]{cb1.getValue(), cb2.getValue()} : null);
+        return dialog.showAndWait().orElse(new Faction[]{Faction.USSR, Faction.GERMANY});
+    }
+
     public void drawGame(Game game) {
         gc.clearRect(0, 0, canvas.getWidth(), canvas.getHeight());
+
         for (int r = 0; r < ROWS; r++) {
             for (int c = 0; c < COLS; c++) {
                 double x = c * HEX_SIZE * 1.5 + 30;
                 double y = r * HEX_SIZE * Math.sqrt(3) + ((c % 2) * HEX_SIZE * Math.sqrt(3) / 2) + 30;
                 HexCell cell = game.getGrid()[r][c];
+
                 if (controller.getReachableCells().contains(cell)) {
                     gc.setFill(Color.rgb(255, 255, 0, 0.25));
                     fillHex(x, y);
@@ -101,17 +137,27 @@ public class HexGameGUI extends Application {
                     gc.setFill(Color.rgb(255, 0, 0, 0.4));
                     fillHex(x, y);
                 }
-            }
-        }
-        for (int r = 0; r < ROWS; r++) {
-            for (int c = 0; c < COLS; c++) {
-                double x = c * HEX_SIZE * 1.5 + 30;
-                double y = r * HEX_SIZE * Math.sqrt(3) + ((c % 2) * HEX_SIZE * Math.sqrt(3) / 2) + 30;
+
                 drawHex(x, y);
-                Unit u = game.getGrid()[r][c].getUnit();
+                Unit u = cell.getUnit();
                 if (u != null) drawUnit(x, y, u);
             }
         }
+    }
+
+    private void drawHex(double x, double y) {
+        double r = HEX_SIZE; double h = Math.sqrt(3) * r / 2;
+        double[] xs = {x, x+r, x+r+(r/2), x+r, x, x-(r/2)};
+        double[] ys = {y, y, y+h, y+2*h, y+2*h, y+h};
+        gc.setStroke(Color.GRAY);
+        gc.strokePolygon(xs, ys, 6);
+    }
+
+    private void fillHex(double x, double y) {
+        double r = HEX_SIZE; double h = Math.sqrt(3) * r / 2;
+        double[] xs = {x, x+r, x+r+(r/2), x+r, x, x-(r/2)};
+        double[] ys = {y, y, y+h, y+2*h, y+2*h, y+h};
+        gc.fillPolygon(xs, ys, 6);
     }
 
     private void drawUnit(double x, double y, Unit unit) {
@@ -134,36 +180,6 @@ public class HexGameGUI extends Application {
         gc.fillText(unit.getName() + " [" + unit.getHp() + "]", x - 5, y + 5);
     }
 
-    private void drawHex(double x, double y) {
-        double r = HEX_SIZE; double h = Math.sqrt(3) * r / 2;
-        double[] xs = {x, x+r, x+r+(r/2), x+r, x, x-(r/2)};
-        double[] ys = {y, y, y+h, y+2*h, y+2*h, y+h};
-        gc.setStroke(Color.GRAY); gc.strokePolygon(xs, ys, 6);
-    }
-    private void fillHex(double x, double y) {
-        double r = HEX_SIZE; double h = Math.sqrt(3) * r / 2;
-        double[] xs = {x, x+r, x+r+(r/2), x+r, x, x-(r/2)};
-        double[] ys = {y, y, y+h, y+2*h, y+2*h, y+h};
-        gc.fillPolygon(xs, ys, 6);
-    }
-    private VBox createPlayerPanel(String factionName) {
-        VBox box = new VBox(5); box.setPadding(new Insets(10)); box.setMinWidth(150);
-        Label n = new Label(factionName); n.setFont(Font.font("Arial", FontWeight.BOLD, 16));
-        Label m = new Label("Баланс: 0"); box.getChildren().addAll(n, m);
-        return box;
-    }
-    private Faction[] showSelectionDialog() {
-        Dialog<Faction[]> dialog = new Dialog<>();
-        dialog.setTitle("Выбор сторон");
-        ChoiceBox<Faction> cb1 = new ChoiceBox<>(); cb1.getItems().addAll(Faction.values()); cb1.setValue(Faction.USSR);
-        ChoiceBox<Faction> cb2 = new ChoiceBox<>(); cb2.getItems().addAll(Faction.values()); cb2.setValue(Faction.GERMANY);
-        VBox layout = new VBox(10, new Label("Игрок 1:"), cb1, new Label("Игрок 2:"), cb2);
-        dialog.getDialogPane().setContent(layout);
-        ButtonType ok = new ButtonType("Начать", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(ok);
-        dialog.setResultConverter(b -> b == ok ? new Faction[]{cb1.getValue(), cb2.getValue()} : null);
-        return dialog.showAndWait().orElse(new Faction[]{Faction.USSR, Faction.GERMANY});
-    }
     private HexCell getClosestHex(double mx, double my) {
         for (int r = 0; r < ROWS; r++) {
             for (int c = 0; c < COLS; c++) {
@@ -174,5 +190,15 @@ public class HexGameGUI extends Application {
         }
         return null;
     }
+
+    private VBox createPlayerPanel(String factionName) {
+        VBox box = new VBox(5);
+        box.setPadding(new Insets(10)); box.setMinWidth(150);
+        Label n = new Label(factionName); n.setFont(Font.font("Arial", FontWeight.BOLD, 16));
+        Label m = new Label("Баланс: 0");
+        box.getChildren().addAll(n, m);
+        return box;
+    }
+
     public static void main(String[] args) { launch(args); }
 }
