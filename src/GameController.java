@@ -23,12 +23,24 @@ class GameController {
         this.endTurnBtn.setOnAction(e -> endTurn());
     }
 
+    public void confirmRestart() {
+        closeMenuIfOpen();
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Подтверждение");
+        alert.setHeaderText("Вы хотите начать игру заново?");
+        alert.setContentText("Текущий прогресс будет потерян.");
+
+        Optional<ButtonType> result = alert.showAndWait();
+        if (result.isPresent() && result.get() == ButtonType.OK) {
+            gui.triggerNewGameSequence();
+        }
+    }
+
     public void resetGame(Faction f1, Faction f2) {
         game.reset(f1, f2);
         selectedCell = null;
         clearZones();
         updateHUD();
-        // Обновляем имена фракций в интерфейсе
         ((Label) p1Stats.getChildren().get(0)).setText(f1.getDisplayName());
         ((Label) p2Stats.getChildren().get(0)).setText(f2.getDisplayName());
         gui.drawGame(game);
@@ -36,29 +48,22 @@ class GameController {
 
     public void handleMouseClick(MouseEvent e, HexCell clickedCell, double sx, double sy) {
         closeMenuIfOpen();
-
-        // Если кликнули мимо гексагона — сбрасываем выделение
         if (clickedCell == null) {
-            selectedCell = null;
-            clearZones();
-            gui.drawGame(game);
+            selectedCell = null; clearZones(); gui.drawGame(game);
             return;
         }
 
         if (e.getButton() == MouseButton.SECONDARY) {
             if (clickedCell.getUnit() != null && clickedCell.getUnit().getOwner() == game.getCurrent()) {
                 if (!(clickedCell.getUnit() instanceof Base)) {
-                    selectedCell = clickedCell;
-                    updateActionZones(clickedCell);
+                    selectedCell = clickedCell; updateActionZones(clickedCell);
                 }
             } else if (clickedCell.getUnit() == null && canSpawnAt(clickedCell)) {
                 showSpawnMenu(clickedCell, sx, sy);
             }
         } else if (e.getButton() == MouseButton.PRIMARY && selectedCell != null) {
-            // Проверка: есть ли еще юнит в выбранной ячейке (важно при перезапуске)
             if (selectedCell.getUnit() == null) {
-                selectedCell = null;
-                clearZones();
+                selectedCell = null; clearZones();
             } else {
                 processAction(clickedCell);
             }
@@ -85,15 +90,11 @@ class GameController {
     private void performAttack(Unit attacker, HexCell targetCell) {
         Unit victim = targetCell.getUnit();
         if (victim == null) return;
-
         victim.setHp(victim.getHp() - attacker.getDamage());
         attacker.setHasAttacked(true);
-
         if (victim.getHp() <= 0) {
             targetCell.setUnit(null);
-            if (victim instanceof Base) {
-                gui.showWinDialog(attacker.getOwner());
-            }
+            if (victim instanceof Base) gui.showWinDialog(attacker.getOwner());
         }
     }
 
@@ -101,9 +102,7 @@ class GameController {
         for (HexCell[] row : game.getGrid()) {
             for (HexCell cell : row) {
                 Unit u = cell.getUnit();
-                if (u != null && u.getOwner() == game.getCurrent()) {
-                    if (getDistance(target, cell) <= 1) return true;
-                }
+                if (u != null && u.getOwner() == game.getCurrent() && getDistance(target, cell) <= 1) return true;
             }
         }
         return false;
@@ -117,37 +116,25 @@ class GameController {
 
     private void updateActionZones(HexCell start) {
         clearZones();
-        // Тот самый фикс ошибки: проверяем start и наличие юнита в нем
         if (start == null || start.getUnit() == null) return;
-
         Unit u = start.getUnit();
         for (HexCell[] row : game.getGrid()) {
             for (HexCell cell : row) {
                 int dist = getDistance(start, cell);
-                if (!u.hasMoved() && cell.getUnit() == null && dist <= u.getSpeed()) {
-                    reachableCells.add(cell);
-                }
-                if (!u.hasAttacked() && cell.getUnit() != null && cell.getUnit().getOwner() != game.getCurrent() && dist <= 2) {
-                    attackableCells.add(cell);
-                }
+                if (!u.hasMoved() && cell.getUnit() == null && dist <= u.getSpeed()) reachableCells.add(cell);
+                if (!u.hasAttacked() && cell.getUnit() != null && cell.getUnit().getOwner() != game.getCurrent() && dist <= 2) attackableCells.add(cell);
             }
         }
     }
 
-    private void clearZones() {
-        reachableCells.clear();
-        attackableCells.clear();
-    }
+    private void clearZones() { reachableCells.clear(); attackableCells.clear(); }
 
     public void endTurn() {
         closeMenuIfOpen();
         for (HexCell[] row : game.getGrid()) {
-            for (HexCell cell : row) {
-                if (cell.getUnit() != null) cell.getUnit().resetActions();
-            }
+            for (HexCell cell : row) if (cell.getUnit() != null) cell.getUnit().resetActions();
         }
-        selectedCell = null;
-        clearZones();
+        selectedCell = null; clearZones();
         game.setCurrent(game.getCurrent() == game.getPlayer1() ? game.getPlayer2() : game.getPlayer1());
         game.getCurrent().setBalance(game.getCurrent().getBalance() + 15);
         updateHUD();
@@ -157,10 +144,8 @@ class GameController {
     public void updateHUD() {
         ((Label) p1Stats.getChildren().get(1)).setText("Баланс: " + game.getPlayer1().getBalance());
         ((Label) p2Stats.getChildren().get(1)).setText("Баланс: " + game.getPlayer2().getBalance());
-
         String active = "-fx-border-color: red; -fx-border-width: 3; -fx-background-color: white; -fx-border-radius: 5;";
         String inactive = "-fx-border-color: grey; -fx-border-width: 1; -fx-background-color: #f4f4f4; -fx-border-radius: 5;";
-
         p1Stats.setStyle(game.getCurrent() == game.getPlayer1() ? active : inactive);
         p2Stats.setStyle(game.getCurrent() == game.getPlayer2() ? active : inactive);
         endTurnBtn.setText("Ход: " + game.getCurrent().getFaction().getDisplayName());
@@ -168,9 +153,7 @@ class GameController {
 
     public void showSpawnMenu(HexCell cell, double sx, double sy) {
         ContextMenu menu = new ContextMenu();
-        int[] costs = {20, 40, 70};
-        String[] names = {"Легкий", "Средний", "Тяжелый"};
-
+        int[] costs = {20, 40, 70}; String[] names = {"Легкий", "Средний", "Тяжелый"};
         for (int i = 0; i < 3; i++) {
             int type = i + 1; int cost = costs[i];
             MenuItem item = new MenuItem(names[i] + " (" + cost + ")");
@@ -178,17 +161,15 @@ class GameController {
                 if (game.getCurrent().getBalance() >= cost) {
                     cell.setUnit(UnitFactory.create(type, game.getCurrent()));
                     game.getCurrent().setBalance(game.getCurrent().getBalance() - cost);
-                    updateHUD();
-                    gui.drawGame(game);
+                    updateHUD(); gui.drawGame(game);
                 }
             });
             menu.getItems().add(item);
         }
-        activeMenu = menu;
-        menu.show(anchorNode, sx, sy);
+        activeMenu = menu; menu.show(anchorNode, sx, sy);
     }
 
-    private void closeMenuIfOpen() { if (activeMenu != null) activeMenu.hide(); }
+    public void closeMenuIfOpen() { if (activeMenu != null) activeMenu.hide(); }
     public Game getGame() { return game; }
     public Set<HexCell> getReachableCells() { return reachableCells; }
     public Set<HexCell> getAttackableCells() { return attackableCells; }

@@ -19,6 +19,7 @@ public class HexGameGUI extends Application {
     private GameController controller;
     private VBox p1Stats, p2Stats;
     private Button endTurnBtn;
+    private Button restartBtn;
 
     @Override
     public void start(Stage stage) {
@@ -34,7 +35,7 @@ public class HexGameGUI extends Application {
         BorderPane root = new BorderPane();
         root.setCenter(new StackPane(canvas));
 
-        HBox hud = new HBox(20);
+        HBox hud = new HBox(15);
         hud.setAlignment(Pos.CENTER);
         hud.setStyle("-fx-background-color: #ddd; -fx-padding: 10;");
 
@@ -45,12 +46,18 @@ public class HexGameGUI extends Application {
         Region s2 = new Region(); HBox.setHgrow(s2, Priority.ALWAYS);
 
         endTurnBtn = new Button("Завершить ход");
-        endTurnBtn.setPrefSize(180, 40);
+        endTurnBtn.setPrefSize(150, 40);
 
-        hud.getChildren().addAll(p1Stats, s1, endTurnBtn, s2, p2Stats);
+        restartBtn = new Button("Рестарт");
+        restartBtn.setPrefSize(100, 40);
+        restartBtn.setStyle("-fx-base: #ff9999;");
+
+        hud.getChildren().addAll(p1Stats, s1, restartBtn, endTurnBtn, s2, p2Stats);
         root.setTop(hud);
 
         controller = new GameController(game, this, p1Stats, p2Stats, endTurnBtn, canvas);
+
+        restartBtn.setOnAction(e -> controller.confirmRestart());
 
         canvas.setOnMouseClicked(e -> {
             HexCell cell = getClosestHex(e.getX(), e.getY());
@@ -71,18 +78,22 @@ public class HexGameGUI extends Application {
         alert.setHeaderText("База противника уничтожена!");
         alert.setContentText("Победитель: " + winner.getFaction().getDisplayName() + "\nХотите сыграть еще раз?");
 
-        ButtonType restartBtn = new ButtonType("Новая игра");
-        ButtonType exitBtn = new ButtonType("Выход", ButtonBar.ButtonData.CANCEL_CLOSE);
-        alert.getButtonTypes().setAll(restartBtn, exitBtn);
+        ButtonType restartType = new ButtonType("Новая игра");
+        ButtonType exitType = new ButtonType("Выход", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(restartType, exitType);
 
         alert.showAndWait().ifPresent(type -> {
-            if (type == restartBtn) {
-                Faction[] f = showSelectionDialog();
-                controller.resetGame(f[0], f[1]);
+            if (type == restartType) {
+                triggerNewGameSequence();
             } else {
                 System.exit(0);
             }
         });
+    }
+
+    public void triggerNewGameSequence() {
+        Faction[] f = showSelectionDialog();
+        controller.resetGame(f[0], f[1]);
     }
 
     private Faction[] showSelectionDialog() {
@@ -96,7 +107,7 @@ public class HexGameGUI extends Application {
         errorLabel.setTextFill(Color.RED);
         errorLabel.setVisible(false);
 
-        VBox layout = new VBox(10, new Label("Игрок 1:"), cb1, new Label("Игрок 2:"), cb2, errorLabel);
+        VBox layout = new VBox(10, new Label("Игрок 1 (Сверху):"), cb1, new Label("Игрок 2 (Снизу):"), cb2, errorLabel);
         layout.setPadding(new Insets(20));
         dialog.getDialogPane().setContent(layout);
 
@@ -104,7 +115,6 @@ public class HexGameGUI extends Application {
         dialog.getDialogPane().getButtonTypes().addAll(okType);
         Node okButton = dialog.getDialogPane().lookupButton(okType);
 
-        // Блокировка кнопки OK, если выбраны одинаковые фракции
         cb1.valueProperty().addListener((o, old, nw) -> {
             boolean invalid = (nw == cb2.getValue());
             okButton.setDisable(invalid);
@@ -122,7 +132,6 @@ public class HexGameGUI extends Application {
 
     public void drawGame(Game game) {
         gc.clearRect(0, 0, canvas.getWidth(), canvas.getHeight());
-
         for (int r = 0; r < ROWS; r++) {
             for (int c = 0; c < COLS; c++) {
                 double x = c * HEX_SIZE * 1.5 + 30;
