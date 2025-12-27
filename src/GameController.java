@@ -3,132 +3,151 @@ import javafx.scene.control.*;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.VBox;
+import java.util.*;
 
-public class GameController {
-
+class GameController {
     private final Game game;
     private final HexGameGUI gui;
     private final Node anchorNode;
-
     private ContextMenu activeMenu;
-    private final VBox p1Stats;
-    private final VBox p2Stats;
+    private final VBox p1Stats, p2Stats;
     private final Button endTurnBtn;
 
-    public GameController(Game game, HexGameGUI gui, VBox p1Stats, VBox p2Stats, Button endTurnBtn, Node anchorNode) {
-        this.game = game;
-        this.gui = gui;
-        this.p1Stats = p1Stats;
-        this.p2Stats = p2Stats;
-        this.endTurnBtn = endTurnBtn;
-        this.anchorNode = anchorNode;
+    private HexCell selectedCell = null;
+    private Set<HexCell> reachableCells = new HashSet<>();
+    private Set<HexCell> attackableCells = new HashSet<>();
 
+    public GameController(Game game, HexGameGUI gui, VBox p1, VBox p2, Button btn, Node anchor) {
+        this.game = game; this.gui = gui; this.p1Stats = p1; this.p2Stats = p2;
+        this.endTurnBtn = btn; this.anchorNode = anchor;
         this.endTurnBtn.setOnAction(e -> endTurn());
     }
 
-
-    public void endTurn() {
-        closeMenuIfOpen();
-
-        if (game.current == game.player1) {
-            game.current = game.player2;
-        } else {
-            game.current = game.player1;
-        }
-
-        game.current.balance += 10;
-
+    public void resetGame(Faction f1, Faction f2) {
+        game.reset(f1, f2);
+        selectedCell = null;
+        clearZones();
         updateHUD();
+        ((Label) p1Stats.getChildren().get(0)).setText(f1.getDisplayName());
+        ((Label) p2Stats.getChildren().get(0)).setText(f2.getDisplayName());
+        gui.drawGame(game);
     }
 
-    public void handleMouseClick(MouseEvent e, HexCell clickedCell, double screenX, double screenY) {
+    public void handleMouseClick(MouseEvent e, HexCell clickedCell, double sx, double sy) {
         closeMenuIfOpen();
+        if (clickedCell == null) return;
 
-        if (clickedCell != null) {
-            if (e.getButton() == MouseButton.SECONDARY) {
-                if (clickedCell.unit == null) {
-                    showSpawnMenu(clickedCell, screenX, screenY);
+        if (e.getButton() == MouseButton.SECONDARY) {
+            if (clickedCell.getUnit() != null && clickedCell.getUnit().getOwner() == game.getCurrent()) {
+                if (!(clickedCell.getUnit() instanceof Base)) {
+                    selectedCell = clickedCell;
+                    updateActionZones(clickedCell);
                 }
-            } else if (e.getButton() == MouseButton.PRIMARY) {
-                System.out.println("Выбрано: " + clickedCell.r + ", " + clickedCell.c);
+            } else if (clickedCell.getUnit() == null && canSpawnAt(clickedCell)) {
+                showSpawnMenu(clickedCell, sx, sy);
+            }
+        } else if (e.getButton() == MouseButton.PRIMARY && selectedCell != null) {
+            processAction(clickedCell);
+        }
+        gui.drawGame(game);
+    }
+
+    private void processAction(HexCell clickedCell) {
+        Unit actor = selectedCell.getUnit();
+        if (clickedCell.getUnit() != null && clickedCell.getUnit().getOwner() != game.getCurrent()) {
+            if (!actor.hasAttacked() && attackableCells.contains(clickedCell)) {
+                performAttack(actor, clickedCell);
+                updateActionZones(selectedCell);
+            }
+        } else if (clickedCell.getUnit() == null && !actor.hasMoved() && reachableCells.contains(clickedCell)) {
+            clickedCell.setUnit(actor);
+            selectedCell.setUnit(null);
+            actor.setHasMoved(true);
+            selectedCell = clickedCell;
+            updateActionZones(selectedCell);
+        }
+    }
+
+    private void performAttack(Unit attacker, HexCell targetCell) {
+        Unit victim = targetCell.getUnit();
+        victim.setHp(victim.getHp() - attacker.getDamage());
+        attacker.setHasAttacked(true);
+        if (victim.getHp() <= 0) {
+            targetCell.setUnit(null);
+            if (victim instanceof Base) {
+                gui.showWinDialog(attacker.getOwner());
             }
         }
     }
 
-    private void showSpawnMenu(HexCell cell, double screenX, double screenY) {
-        ContextMenu contextMenu = new ContextMenu();
-
-        MenuItem tank1 = new MenuItem("Легкий танк (20)");
-        tank1.setOnAction(ev -> buyUnit(1, cell));
-
-        MenuItem tank2 = new MenuItem("Средний танк (40)");
-        tank2.setOnAction(ev -> buyUnit(2, cell));
-
-        MenuItem tank3 = new MenuItem("Тяжелый танк (70)");
-        tank3.setOnAction(ev -> buyUnit(3, cell));
-
-        contextMenu.getItems().addAll(tank1, tank2, tank3);
-
-        activeMenu = contextMenu;
-        contextMenu.show(anchorNode, screenX, screenY);
+    private boolean canSpawnAt(HexCell target) {
+        for (HexCell[] row : game.getGrid()) {
+            for (HexCell cell : row) {
+                Unit u = cell.getUnit();
+                if (u != null && u.getOwner() == game.getCurrent() && getDistance(target, cell) <= 1) return true;
+            }
+        }
+        return false;
     }
 
-    public void buyUnit(int type, HexCell cell) {
-        int cost = switch(type) { case 1 -> 20; case 2 -> 40; case 3 -> 70; default -> 0; };
+    private int getDistance(HexCell a, HexCell b) {
+        int q1 = a.getC(), r1 = a.getR() - (a.getC() - (a.getC() & 1)) / 2;
+        int q2 = b.getC(), r2 = b.getR() - (b.getC() - (b.getC() & 1)) / 2;
+        return (Math.abs(q1 - q2) + Math.abs(q1 + r1 - q2 - r2) + Math.abs(r1 - r2)) / 2;
+    }
 
-        if (game.current.balance >= cost) {
-            Unit newUnit = UnitFactory.create(type, game.current);
-            cell.unit = newUnit;
-            game.current.balance -= cost;
-
-            updateHUD();
-            gui.drawGame(game);
-        } else {
-            showWarning("Недостаточно средств",
-                    "Не хватает средств для покупки юнита.\n" +
-                            "Ваш баланс: " + game.current.balance +
-                            "\nЦена: " + cost);
+    private void updateActionZones(HexCell start) {
+        clearZones();
+        Unit u = start.getUnit();
+        for (HexCell[] row : game.getGrid()) {
+            for (HexCell cell : row) {
+                int dist = getDistance(start, cell);
+                if (!u.hasMoved() && cell.getUnit() == null && dist <= u.getSpeed()) reachableCells.add(cell);
+                if (!u.hasAttacked() && cell.getUnit() != null && cell.getUnit().getOwner() != game.getCurrent() && dist <= 2) attackableCells.add(cell);
+            }
         }
     }
 
+    private void clearZones() { reachableCells.clear(); attackableCells.clear(); }
 
-    public void closeMenuIfOpen() {
-        if (activeMenu != null) {
-            activeMenu.hide();
-            activeMenu = null;
+    public void endTurn() {
+        for (HexCell[] row : game.getGrid()) {
+            for (HexCell cell : row) if (cell.getUnit() != null) cell.getUnit().resetActions();
         }
-    }
-
-    private void showWarning(String title, String content) {
-        Alert alert = new Alert(Alert.AlertType.WARNING);
-        alert.setTitle("Внимание");
-        alert.setHeaderText(title);
-        alert.setContentText(content);
-        alert.showAndWait();
+        selectedCell = null; clearZones();
+        game.setCurrent(game.getCurrent() == game.getPlayer1() ? game.getPlayer2() : game.getPlayer1());
+        game.getCurrent().setBalance(game.getCurrent().getBalance() + 15);
+        updateHUD(); gui.drawGame(game);
     }
 
     public void updateHUD() {
-        Label p1MoneyLabel = (Label) p1Stats.getChildren().get(1);
-        Label p2MoneyLabel = (Label) p2Stats.getChildren().get(1);
+        ((Label) p1Stats.getChildren().get(1)).setText("Баланс: " + game.getPlayer1().getBalance());
+        ((Label) p2Stats.getChildren().get(1)).setText("Баланс: " + game.getPlayer2().getBalance());
+        p1Stats.setStyle(game.getCurrent() == game.getPlayer1() ? "-fx-border-color:red;" : "-fx-border-color:grey;");
+        p2Stats.setStyle(game.getCurrent() == game.getPlayer2() ? "-fx-border-color:red;" : "-fx-border-color:grey;");
+        endTurnBtn.setText("Ход: " + game.getCurrent().getFaction().getDisplayName());
+    }
 
-        p1MoneyLabel.setText("Баланс: " + game.player1.balance);
-        p2MoneyLabel.setText("Баланс: " + game.player2.balance);
-
-        String activeStyle = "-fx-border-color: red; -fx-border-width: 3; -fx-background-color: white; -fx-border-radius: 5;";
-        String inactiveStyle = "-fx-border-color: grey; -fx-border-width: 1; -fx-background-color: #f4f4f4; -fx-border-radius: 5;";
-
-        if (game.current == game.player1) {
-            p1Stats.setStyle(activeStyle);
-            p2Stats.setStyle(inactiveStyle);
-            endTurnBtn.setText("Ход: " + game.player1.name);
-        } else {
-            p1Stats.setStyle(inactiveStyle);
-            p2Stats.setStyle(activeStyle);
-            endTurnBtn.setText("Ход: " + game.player2.name);
+    public void showSpawnMenu(HexCell cell, double sx, double sy) {
+        ContextMenu menu = new ContextMenu();
+        int[] costs = {20, 40, 70}; String[] names = {"Легкий", "Средний", "Тяжелый"};
+        for (int i = 0; i < 3; i++) {
+            int type = i + 1; int cost = costs[i];
+            MenuItem item = new MenuItem(names[i] + " (" + cost + ")");
+            item.setOnAction(e -> {
+                if (game.getCurrent().getBalance() >= cost) {
+                    cell.setUnit(UnitFactory.create(type, game.getCurrent()));
+                    game.getCurrent().setBalance(game.getCurrent().getBalance() - cost);
+                    updateHUD(); gui.drawGame(game);
+                }
+            });
+            menu.getItems().add(item);
         }
+        activeMenu = menu; menu.show(anchorNode, sx, sy);
     }
 
-    public Game getGame() {
-        return game;
-    }
+    private void closeMenuIfOpen() { if (activeMenu != null) activeMenu.hide(); }
+    public Game getGame() { return game; }
+    public Set<HexCell> getReachableCells() { return reachableCells; }
+    public Set<HexCell> getAttackableCells() { return attackableCells; }
 }
